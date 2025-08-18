@@ -3,7 +3,7 @@ name: Build & Push ThingsBoard CE Images
 on:
   push:
     branches:
-      - develop 
+     # - develop 
   workflow_dispatch:
 
 jobs:
