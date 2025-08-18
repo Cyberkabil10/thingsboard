@@ -1,0 +1,94 @@
+name: Build & Push ThingsBoard CE Images
+
+on:
+  push:
+    branches:
+      - develop 
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------
+      # Checkout source code
+      # ------------------------------
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # ------------------------------
+      # Setup JDK 17
+      # ------------------------------
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      # ------------------------------
+      # Setup Node.js (for UI build)
+      # ------------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      # ------------------------------
+      # Cache Maven deps
+      # ------------------------------
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # ------------------------------
+      # Build artifacts & Docker images
+      # ------------------------------
+      - name: Build ThingsBoard CE with Maven
+        run: |
+          mvn clean install -DskipTests -Ddockerfile.skip=false -Dnpm.skip=false
+
+      # ------------------------------
+      # Extract version
+      # ------------------------------
+      - name: Extract version
+        id: get_version
+        run: |
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      # ------------------------------
+      # Docker login
+      # ------------------------------
+      - name: DockerHub Login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ------------------------------
+      # Tag & Push Images
+      # ------------------------------
+      - name: Push Docker Images
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+
+          # List all images built
+          docker image ls | grep thingsboard || true
+
+          # Define image list
+          IMAGES=("tb-node" "tb-web-ui" "tb-js-executor" "tb-postgres" "tb-mqtt-broker")
+
+          for IMG in "${IMAGES[@]}"; do
+            docker tag thingsboard/$IMG:latest ${{ secrets.DOCKERHUB_USERNAME }}/$IMG:latest
+            docker tag thingsboard/$IMG:latest ${{ secrets.DOCKERHUB_USERNAME }}/$IMG:$VERSION
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/$IMG:latest
+            docker push ${{ secrets.DOCKERHUB_USERNAME }}/$IMG:$VERSION
+          done
+
