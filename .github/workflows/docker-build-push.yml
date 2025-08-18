@@ -3,18 +3,15 @@ name: Build and Push ThingsBoard Images
 on:
   push:
     branches:
-      - develop   # Only run on develop branch pushes
+      - develop
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
     steps:
-      # Checkout the repo
       - name: Checkout source
         uses: actions/checkout@v4
 
-      # Cache Maven dependencies (~/.m2/repository) to avoid re-downloading them each build
       - name: Cache Maven packages
         uses: actions/cache@v4
         with:
@@ -22,18 +19,16 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
-      # Set up JDK 17 (required for ThingsBoard)
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      # Set up Docker Buildx (supports advanced caching & multi-platform builds)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Cache Docker build layers (faster rebuilds)
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
@@ -41,14 +36,13 @@ jobs:
           key: ${{ runner.os }}-buildx-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-buildx-
-      # Log in to DockerHub (secrets must be added in repo settings)
+
       - name: Log in to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Use semantic versioning based on commit messages
       - name: Semantic versioning
         id: versioning
         uses: paulhatch/semantic-version@v5.0.2
@@ -59,46 +53,48 @@ jobs:
           version_format: "v${major}.${minor}.${patch}"
           bump_each_commit: true
 
-      # Build project with Maven (skip tests & skip license check)
+      - name: Verify version
+        run: |
+          if [ -z "${{ steps.versioning.outputs.version }}" ]; then
+            echo "Version generation failed!"
+            exit 1
+          fi
+          echo "Using version: ${{ steps.versioning.outputs.version }}"
+
       - name: Build project with Maven
         run: mvn clean install -DskipTests -Dlicense.skip=true -Ddockerfile.skip=false
 
-      # List Docker images built by Maven
       - name: List built images
-        run: docker image ls
+        run: docker image ls --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
 
-      # Tag and push Docker images with both :latest and semantic version tag
       - name: Push Docker Images
         run: |
           VERSION=${{ steps.versioning.outputs.version }}
-          echo "Using version tag: $VERSION"
+          USERNAME="cain12"
           
-          # Get all ThingsBoard images with their tags
-          IMAGES_WITH_TAGS=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "thingsboard/")
+          # Get all non-dangling images
+          IMAGES_WITH_TAGS=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "<none>")
           
           if [ -z "$IMAGES_WITH_TAGS" ]; then
-            echo "No ThingsBoard images found!"
+            echo "Error: No Docker images found!"
             exit 1
           fi
-          
-          # Process each image
+
           for IMAGE_WITH_TAG in $IMAGES_WITH_TAGS; do
-            # Extract repository name (without current tag)
-            REPO=$(echo $IMAGE_WITH_TAG | cut -d':' -f1)
-            
             # Skip if already tagged with version
             if [[ $IMAGE_WITH_TAG == *"$VERSION" ]]; then
-              echo "Skipping $IMAGE_WITH_TAG (already version tagged)"
               continue
             fi
             
-            echo "Processing $IMAGE_WITH_TAG"
+            ORIG_REPO=$(echo $IMAGE_WITH_TAG | cut -d':' -f1)
+            IMAGE_NAME=$(basename $ORIG_REPO)
+            NEW_REPO="$USERNAME/$IMAGE_NAME"
             
-            # Tag with version
-            docker tag $IMAGE_WITH_TAG $REPO:$VERSION
-            docker push $REPO:$VERSION
+            echo "Processing $IMAGE_WITH_TAG → $NEW_REPO:$VERSION"
             
-            # Also tag as latest and push
-            docker tag $IMAGE_WITH_TAG $REPO:latest
-            docker push $REPO:latest
+            docker tag $IMAGE_WITH_TAG $NEW_REPO:$VERSION
+            docker push $NEW_REPO:$VERSION || echo "Failed to push $NEW_REPO:$VERSION"
+            
+            docker tag $IMAGE_WITH_TAG $NEW_REPO:latest
+            docker push $NEW_REPO:latest || echo "Failed to push $NEW_REPO:latest"
           done
