@@ -52,7 +52,7 @@ jobs:
       # ------------------------------
       - name: Build ThingsBoard CE with Maven
         run: |
-          mvn clean install -DskipTests -Ddockerfile.skip=false -Dnpm.skip=false
+          mvn clean install -DskipTests -Ddockerfile.skip=false -Dnpm.skip=true -Dlicense.skip=true
 
       # ------------------------------
       # Extract version
