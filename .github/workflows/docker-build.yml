@@ -78,17 +78,18 @@ jobs:
       - name: Push Docker Images
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
-
-          # List all images built
-          docker image ls | grep thingsboard || true
-
-          # Define image list
-          IMAGES=("tb-node" "tb-web-ui" "tb-js-executor" "tb-postgres" "tb-mqtt-broker")
-
-          for IMG in "${IMAGES[@]}"; do
-            docker tag thingsboard/$IMG:latest ${{ secrets.DOCKERHUB_USERNAME }}/$IMG:latest
-            docker tag thingsboard/$IMG:latest ${{ secrets.DOCKERHUB_USERNAME }}/$IMG:$VERSION
-            docker push ${{ secrets.DOCKERHUB_USERNAME }}/$IMG:latest
-            docker push ${{ secrets.DOCKERHUB_USERNAME }}/$IMG:$VERSION
+      
+          echo "🔍 Detecting built ThingsBoard images..."
+          # Grab all local images with repository starting with "thingsboard/"
+          IMAGES=$(docker images --format "{{.Repository}}" | grep "^thingsboard/" | sort -u)
+      
+          echo "Found images:"
+          echo "$IMAGES"
+      
+          for IMAGE in $IMAGES; do
+            echo "➡️  Tagging and pushing $IMAGE:$VERSION"
+            docker tag $IMAGE:latest $IMAGE:$VERSION
+            docker push $IMAGE:$VERSION
+            docker push $IMAGE:latest
           done
 
