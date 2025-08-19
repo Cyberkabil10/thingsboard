@@ -152,10 +152,10 @@ jobs:
     needs: build-and-push
     if: needs.build-and-push.outputs.image_identified == 'true'
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: deployment-info
+      #- name: Download artifacts
+      #  uses: actions/download-artifact@v4
+       # with:
+        #  name: deployment-info
 
       - name: Read version and image info
         id: deployment
