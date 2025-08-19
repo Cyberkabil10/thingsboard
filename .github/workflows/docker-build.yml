@@ -1,1 +1,114 @@
+name: Deploy Only
 
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy'
+        required: true
+        default: 'latest'
+
+jobs:
+  deploy-only:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Generate docker-compose file
+        run: |
+          cat > docker-compose-dev.yml << EOF
+          version: '3.8'
+          services:
+            postgres:
+              restart: always
+              image: "postgres:16"
+              environment:
+                POSTGRES_DB: thingsboard
+                POSTGRES_PASSWORD: postgres
+              volumes:
+                - postgres-data:/var/lib/postgresql/data
+                
+            thingsboard-ce:
+              restart: always
+              image: cain12/tb-node:${{ github.event.inputs.version }}
+              ports:
+                - "8080:8080"
+                - "7070:7070"
+                - "1883:1883"
+                - "8883:8883"
+                - "5683-5688:5683-5688/udp"
+              environment:
+                TB_SERVICE_ID: tb-ce-node
+                SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/thingsboard
+                SPRING_DATASOURCE_USERNAME: postgres
+                SPRING_DATASOURCE_PASSWORD: postgres
+              depends_on:
+                - postgres
+              volumes:
+                - thingsboard-data:/data
+                - thingsboard-logs:/var/log/thingsboard
+
+          volumes:
+            postgres-data:
+            thingsboard-data:
+            thingsboard-logs:
+          EOF
+
+      # ... rest
+      - name: Deploy to development server
+        env:
+          SSH_HOST: ${{ secrets.DEV_SERVER_HOST }}
+          SSH_USER: ${{ secrets.DEV_SERVER_USER }}
+          SSH_PORT: ${{ secrets.DEV_SERVER_PORT || '22' }}
+        run: |
+          # Create directory structure on server
+          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "mkdir -p /opt/thingsboard-dev"
+
+          # Copy docker-compose file to server
+          scp -P $SSH_PORT docker-compose-dev.yml $SSH_USER@$SSH_HOST:/opt/thingsboard-dev/
+
+          # Deploy using Docker Compose
+          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST << 'EOF'
+          cd /opt/thingsboard-dev
+          echo "Pulling latest images..."
+          docker compose -f docker-compose-dev.yml pull
+          echo "Stopping existing containers..."
+          docker compose -f docker-compose-dev.yml down
+          echo "Starting new containers..."
+          docker compose -f docker-compose-dev.yml up -d
+          echo "Cleaning up old images..."
+          docker image prune -af
+          echo "Checking service status..."
+          docker compose -f docker-compose-dev.yml ps
+          EOF
+
+      - name: Verify deployment
+        env:
+          SSH_HOST: ${{ secrets.DEV_SERVER_HOST }}
+          SSH_USER: ${{ secrets.DEV_SERVER_USER }}
+          SSH_PORT: ${{ secrets.DEV_SERVER_PORT || '22' }}
+        run: |
+          # Wait for services to start
+          sleep 30
+          
+          # Check if ThingsBoard is responding
+          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST << 'EOF'
+          echo "Checking ThingsBoard health..."
+          max_attempts=15
+          attempt=1
+          while [ $attempt -le $max_attempts ]; do
+            if curl -f http://localhost:8080/api/auth/about; then
+              echo "ThingsBoard is healthy and responding!"
+              exit 0
+            fi
+            echo "Attempt $attempt/$max_attempts failed. Retrying in 10 seconds..."
+            sleep 10
+            attempt=$((attempt+1))
+          done
+          echo "ThingsBoard failed to start after $max_attempts attempts"
+          docker compose -f docker-compose-dev.yml logs thingsboard-ce
+          exit 1
+          EOF
