@@ -171,10 +171,10 @@ jobs:
           echo "Using version: $(cat VERSION.txt)"
           echo "Node image: $(cat NODE_IMAGE.txt)"
 
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      #- name: Set up SSH
+       # uses: webfactory/ssh-agent@v0.8.0
+       # with:
+        #  ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
      # - name: Add server to known hosts
       #  run: |
