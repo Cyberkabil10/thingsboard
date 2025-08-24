@@ -152,6 +152,12 @@ jobs:
     needs: build-and-push
     if: needs.build-and-push.outputs.image_identified == 'true'
     steps:
+      - name: Install Cloudflared
+        run: |
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+          rm cloudflared-linux-amd64.deb
+          cloudflared --version
       #- name: Download artifacts
       #  uses: actions/download-artifact@v4
        # with:
@@ -224,18 +230,18 @@ jobs:
 
       - name: Deploy to development server
         env:
-          SSH_HOST: ${{ secrets.DEV_SERVER_HOST }}
-          SSH_USER: ${{ secrets.DEV_SERVER_USER }}
-          SSH_PORT: ${{ secrets.DEV_SERVER_PORT || '22' }}
+          SSH_HOST: gh.kabil-sobeam.info
+          SSH_USER: tb
+          SSH_PORT: 22
         run: |
           # Create directory structure on server
-          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST "mkdir -p /opt/thingsboard-dev"
-
+          ssh -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" -p $SSH_PORT $SSH_USER@$SSH_HOST "mkdir -p /opt/thingsboard-dev"
+          
           # Copy docker-compose file to server
-          scp -P $SSH_PORT docker-compose-dev.yml $SSH_USER@$SSH_HOST:/opt/thingsboard-dev/
-
+          scp -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" -P $SSH_PORT docker-compose-dev.yml $SSH_USER@$SSH_HOST:/opt/thingsboard-dev/
+          
           # Deploy using Docker Compose
-          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST << 'EOF'
+          ssh -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" -p $SSH_PORT $SSH_USER@$SSH_HOST << 'EOF'
           cd /opt/thingsboard-dev
           echo "Pulling latest images..."
           docker compose -f docker-compose-dev.yml pull
@@ -248,18 +254,16 @@ jobs:
           echo "Checking service status..."
           docker compose -f docker-compose-dev.yml ps
           EOF
-
+          
       - name: Verify deployment
         env:
-          SSH_HOST: ${{ secrets.DEV_SERVER_HOST }}
-          SSH_USER: ${{ secrets.DEV_SERVER_USER }}
-          SSH_PORT: ${{ secrets.DEV_SERVER_PORT || '22' }}
+          SSH_HOST: gh.kabil-sobeam.info
+          SSH_USER: tb
+          SSH_PORT: 22
         run: |
-          # Wait for services to start
           sleep 30
           
-          # Check if ThingsBoard is responding
-          ssh -p $SSH_PORT $SSH_USER@$SSH_HOST << 'EOF'
+          ssh -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" -p $SSH_PORT $SSH_USER@$SSH_HOST << 'EOF'
           echo "Checking ThingsBoard health..."
           max_attempts=15
           attempt=1
