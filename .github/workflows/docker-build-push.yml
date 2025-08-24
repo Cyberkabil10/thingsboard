@@ -223,16 +223,16 @@ jobs:
 
         run: |
           # Create directory
-          ssh -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info "mkdir -p /opt/thingsboard-dev"
+          ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info "mkdir -p /opt/thingsboard-dev"
           # Create directory structure on server
-          # ssh -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" -p $SSH_PORT $SSH_USER@$SSH_HOST "mkdir -p /opt/thingsboard-dev"
+          # ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" -p $SSH_PORT $SSH_USER@$SSH_HOST "mkdir -p /opt/thingsboard-dev"
           
           # Copy docker-compose file to server
           #scp -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" -P $SSH_PORT docker-compose-dev.yml $SSH_USER@$SSH_HOST:/opt/thingsboard-dev/
           # Copy files
-          scp -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" docker-compose-dev.yml tb@gh.kabil-sobeam.info:/opt/thingsboard-dev/
+          scp -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" docker-compose-dev.yml tb@gh.kabil-sobeam.info:/opt/thingsboard-dev/
           # Deploy using Docker Compose
-          ssh -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info << 'EOF'
+          ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info << 'EOF'
           cd /opt/thingsboard-dev
           echo "Pulling latest images..."
           docker compose -f docker-compose-dev.yml pull
@@ -247,14 +247,10 @@ jobs:
           EOF
           
       - name: Verify deployment
-        env:
-          SSH_HOST: gh.kabil-sobeam.info
-          SSH_USER: tb
-          SSH_PORT: 22
         run: |
           sleep 30
           
-          ssh -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info << 'EOF'
+          ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info << 'EOF'
           echo "Checking ThingsBoard health..."
           max_attempts=15
           attempt=1
