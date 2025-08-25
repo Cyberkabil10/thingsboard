@@ -220,10 +220,12 @@ jobs:
           EOF
 
       - name: Deploy to development server
+        env:
+          SUDO_PASSWORD: ${{ secrets.SUDO_PASSWORD }}
 
         run: |
           # Create directory
-          ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info  "sudo mkdir -p /opt/thingsboard-dev && sudo chown tb:tb /opt/thingsboard-dev"
+          #ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info  "sudo mkdir -p /opt/thingsboard-dev && sudo chown tb:tb /opt/thingsboard-dev"
           # Create directory structure on server
           # ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" -p $SSH_PORT $SSH_USER@$SSH_HOST "mkdir -p /opt/thingsboard-dev"
           
@@ -231,9 +233,9 @@ jobs:
           #scp -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" -P $SSH_PORT docker-compose-dev.yml $SSH_USER@$SSH_HOST:/opt/thingsboard-dev/
           # Copy files
           #scp -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" docker-compose-dev.yml tb@gh.kabil-sobeam.info:/opt/thingsboard-dev/
-          scp -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" docker-compose-dev.yml tb@gh.kabil-sobeam.info:/tmp/docker-compose-dev.yml
+          scp -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" docker-compose-dev.yml tb@gh.kabil-sobeam.info:/opt/thingsboard-dev/docker-compose-dev.yml && echo '$SUDO_PASSWORD' | sudo -S chown tb:tb /opt/thingsboard-dev/docker-compose-dev.yml"
           # Move file to correct location with sudo
-          ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info "sudo mv /tmp/docker-compose-dev.yml /opt/thingsboard-dev/docker-compose-dev.yml && sudo chown tb:tb /opt/thingsboard-dev/docker-compose-dev.yml"
+          #ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info "sudo mv /tmp/docker-compose-dev.yml /opt/thingsboard-dev/docker-compose-dev.yml && sudo chown tb:tb /opt/thingsboard-dev/docker-compose-dev.yml"
           # Deploy using Docker Compose
           #ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info
           ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info << 'EOF'
