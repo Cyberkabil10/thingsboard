@@ -190,7 +190,7 @@ jobs:
                 
             thingsboard-ce:
               restart: always
-              image: cain12/tb-node:${{ steps.deployment.outputs.VERSION }}
+              image: cain12/tb-node:VERSION_PLACEHOLDER
               ports:
                 - "8080:8080"
                 - "7070:7070"
@@ -218,6 +218,8 @@ jobs:
             thingsboard-data:
             thingsboard-logs:
           EOF
+              # Replace placeholder with actual version
+          sed -i "s/VERSION_PLACEHOLDER/${{ steps.deployment.outputs.VERSION }}/g" docker-compose-dev.yml
 
       - name: Deploy to development server
         env:
