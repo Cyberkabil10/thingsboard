@@ -230,8 +230,17 @@ jobs:
           docker compose -f docker-compose-dev.yml pull
           echo "Stopping existing containers..."
           docker compose -f docker-compose-dev.yml down
-          echo "Initialize database schema & system assets..."
-          docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
+          echo "Checking if DB is fresh..."
+          DB_EXISTS=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -d thingsboard -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='admin_settings';")
+
+          if [ "$DB_EXISTS" != "1" ]; then
+            echo "Fresh DB detected → Initializing schema & system assets..."
+            docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
+          else
+            echo "DB already initialized → Skipping schema init."
+          fi
+          #echo "Initialize database schema & system assets..."
+          #docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
           echo "Starting new containers..."
           docker compose -f docker-compose-dev.yml up -d
           echo "Cleaning up old images..."
