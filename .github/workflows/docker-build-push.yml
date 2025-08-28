@@ -222,46 +222,48 @@ jobs:
       - name: Deploy to development server
         env:
           SUDO_PASSWORD: ${{ secrets.SUDO_PASSWORD }}
-
         run: |         
-          # Copy files          
-          ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info "echo 'Direct connection successful'"
-          scp -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" docker-compose-dev.yml tb@gh.kabil-sobeam.info:/opt/thingsboard-dev/docker-compose-dev.yml && echo '$SUDO_PASSWORD' 
-          # Deploy using Docker Compose
-          ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info << 'EOF'
+          scp -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" docker-compose-dev.yml tb@gh.kabil-sobeam.info:/opt/thingsboard-dev/docker-compose-dev.yml
+          
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info << 'EOF'
           cd /opt/thingsboard-dev
+          
           echo "Pulling latest images..."
           docker compose -f docker-compose-dev.yml pull
-          echo "Stopping existing containers..."
-          docker compose -f docker-compose-dev.yml down
-          # Deploy using Docker Compose
-          ssh -o StrictHostKeyChecking=no -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info << 'EOF'
-          cd /opt/thingsboard-dev
-          echo "Pulling latest images..."
-          docker compose -f docker-compose-dev.yml pull
+          
           echo "Stopping existing containers..."
           docker compose -f docker-compose-dev.yml down
           
-          echo "Checking if database already exists and is initialized..."
-          # Check if the database exists and has data
-          DB_EXISTS=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -lqt | grep -w thingsboard | wc -l)
-          TABLES_EXIST=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -d thingsboard -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null || echo "0")
+          echo "Checking database initialization status..."
           
-          if [ "$DB_EXISTS" -eq 0 ] || [ "$TABLES_EXIST" -eq 0 ]; then
-            echo "Fresh DB detected → Initializing schema & system assets..."
+          # Start PostgreSQL alone first
+          docker compose -f docker-compose-dev.yml up -d postgres
+          sleep 15
+          
+          # Check if database exists at all
+          DB_EXISTS=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -lqt 2>/dev/null | grep -w thingsboard | wc -l)
+          
+          if [ "$DB_EXISTS" -eq 0 ]; then
+            echo "Database doesn't exist → Fresh installation needed"
             docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
           else
-            echo "DB already initialized → Skipping schema init."
-            echo "Running database migration if needed..."
-            docker compose -f docker-compose-dev.yml run --rm -e UPGRADE_TB=true thingsboard-ce
+            # Check if ThingsBoard specific tables exist
+            TB_INITIALIZED=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -d thingsboard -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='admin_settings';" 2>/dev/null || echo "0")
+            
+            if [ "$TB_INITIALIZED" = "1" ]; then
+              echo "Database already initialized → Normal startup"
+              # No initialization needed, just start
+            else
+              echo "Database exists but not initialized → Running initialization"
+              docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
+            fi
           fi
-          #echo "Initialize database schema & system assets..."
-          #docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
-          echo "Starting new containers..."
+          
+          echo "Starting all services..."
           docker compose -f docker-compose-dev.yml up -d
-          echo "Cleaning up old images..."
+          
+          echo "Cleanup..."
           docker image prune -af
-          echo "Checking service status..."
           docker compose -f docker-compose-dev.yml ps
           EOF
           
