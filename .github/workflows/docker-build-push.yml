@@ -215,8 +215,10 @@ jobs:
           
           volumes:
             postgres-data:
-              name: tb-postgres-data
-              driver: local
+              #name: tb-postgres-data
+              #driver: local
+              name: tb-postgres-data  # Use the existing volume name
+              external: true 
           EOF
 
       - name: Deploy to development server
