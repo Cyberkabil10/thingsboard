@@ -229,32 +229,34 @@ jobs:
           
           ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -o ProxyCommand="cloudflared access ssh --hostname gh.kabil-sobeam.info" tb@gh.kabil-sobeam.info << 'EOF'
           cd /opt/thingsboard-dev
-          
+
           echo "Pulling latest images..."
           docker compose -f docker-compose-dev.yml pull
           
           echo "Stopping existing containers..."
           docker compose -f docker-compose-dev.yml down
           
-          echo "Checking database initialization status..."
-          
-          # Start PostgreSQL alone first
+          echo "Starting PostgreSQL..."
           docker compose -f docker-compose-dev.yml up -d postgres
-          sleep 15
           
-          # Check if database exists at all
-          DB_EXISTS=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -lqt 2>/dev/null | grep -w thingsboard | wc -l)
+          # Wait for Postgres to be ready
+          echo "Waiting for PostgreSQL to be ready..."
+          until docker compose -f docker-compose-dev.yml exec -T postgres pg_isready -U postgres > /dev/null 2>&1; do
+            sleep 5
+          done
+          echo "PostgreSQL is ready!"
+          
+          # Check if database exists
+          DB_EXISTS=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -lqt | grep -w thingsboard | wc -l)
           
           if [ "$DB_EXISTS" -eq 0 ]; then
-            echo "Database doesn't exist → Fresh installation needed"
+            echo "Database doesn't exist → Fresh installation"
             docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
           else
-            # Check if ThingsBoard specific tables exist
             TB_INITIALIZED=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -d thingsboard -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='admin_settings';" 2>/dev/null || echo "0")
-            
+          
             if [ "$TB_INITIALIZED" = "1" ]; then
               echo "Database already initialized → Normal startup"
-              # No initialization needed, just start
             else
               echo "Database exists but not initialized → Running initialization"
               docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
@@ -267,7 +269,48 @@ jobs:
           echo "Cleanup..."
           docker image prune -af
           docker compose -f docker-compose-dev.yml ps
-          EOF
+          EOF 
+
+          #cd /opt/thingsboard-dev
+          
+         # echo "Pulling latest images..."
+          #docker compose -f docker-compose-dev.yml pull
+          
+         # echo "Stopping existing containers..."
+          #docker compose -f docker-compose-dev.yml down
+          
+         # echo "Checking database initialization status..."
+          
+          # Start PostgreSQL alone first
+         # docker compose -f docker-compose-dev.yml up -d postgres
+          #sleep 15
+          
+          # Check if database exists at all
+          #DB_EXISTS=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -lqt 2>/dev/null | grep -w thingsboard | wc -l)
+          
+          #if [ "$DB_EXISTS" -eq 0 ]; then
+            #echo "Database doesn't exist → Fresh installation needed"
+           # docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
+          #else
+            # Check if ThingsBoard specific tables exist
+           # TB_INITIALIZED=$(docker compose -f docker-compose-dev.yml exec -T postgres psql -U postgres -d thingsboard -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='admin_settings';" 2>/dev/null || echo "0")
+            
+           # if [ "$TB_INITIALIZED" = "1" ]; then
+            #  echo "Database already initialized → Normal startup"
+              # No initialization needed, just start
+           # else
+           #   echo "Database exists but not initialized → Running initialization"
+            #  docker compose -f docker-compose-dev.yml run --rm -e INSTALL_TB=true -e LOAD_DEMO=true thingsboard-ce
+           # fi
+         # fi
+          
+          #echo "Starting all services..."
+          #docker compose -f docker-compose-dev.yml up -d
+          
+         # echo "Cleanup..."
+          #docker image prune -af
+          #docker compose -f docker-compose-dev.yml ps
+         #EOF
           
       - name: Verify deployment
         run: |
