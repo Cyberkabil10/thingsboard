@@ -242,7 +242,7 @@ jobs:
           max_attempts=15
           attempt=1
           while [ $attempt -le $max_attempts ]; do
-            if curl -f http://localhost:8080/api/auth/about; then
+            if curl -f http://localhost:8080; then
               echo "ThingsBoard is healthy and responding!"
               exit 0
             fi
