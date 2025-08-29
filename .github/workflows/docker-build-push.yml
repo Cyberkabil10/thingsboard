@@ -181,7 +181,6 @@ jobs:
       - name: Generate docker-compose file
         run: |
           cat > docker-compose-dev.yml << "EOF"
-          version: '3.8'
           services:
             postgres:
               restart: always
@@ -235,6 +234,15 @@ jobs:
           
           echo "Stopping existing containers..."
           docker compose -f docker-compose-dev.yml down
+          echo "Starting PostgreSQL..."
+          docker compose -f docker-compose-dev.yml up -d postgres
+          sleep 30
+          echo "Starting all services..."
+          docker compose -f docker-compose-dev.yml up -d
+          
+          echo "Cleanup..."
+          docker image prune -af
+          docker compose -f docker-compose-dev.yml ps
           
           echo "Starting PostgreSQL..."
           docker compose -f docker-compose-dev.yml up -d postgres
