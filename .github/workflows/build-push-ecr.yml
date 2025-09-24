@@ -1,0 +1,135 @@
+name: Build, Push and Deploy ThingsBoard Images
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.versioning.outputs.version }}
+      image_identified: ${{ steps.identify-image.outputs.image_found }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for semantic versioning to work properly
+      - name: Clean Docker space
+        run: |
+          docker system df
+          docker system prune -af --volumes    
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Semantic versioning
+        id: versioning
+        uses: paulhatch/semantic-version@v5.0.2
+        with: 
+          tag_prefix: "v"
+          major_pattern: "(BREAKING CHANGE|major):"
+          minor_pattern: "(feat|minor):"
+          patch_pattern: "(fix|patch|chore):"
+          version_format: "${major}.${minor}.${patch}"
+          bump_each_commit: true
+
+      - name: Verify version
+        run: |
+          if [ -z "${{ steps.versioning.outputs.version }}" ]; then
+            echo "Version generation failed!"
+            exit 1
+          fi
+          echo "Using version: ${{ steps.versioning.outputs.version }}"
+
+      - name: Build project with Maven
+        run: mvn clean install -DskipTests -Dlicense.skip=true -Ddockerfile.skip=false
+
+      - name: List built images
+        run: docker image ls --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3  # <-- change to your AWS region
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push tb-postgres image to ECR
+        run: |
+          VERSION=${{ steps.versioning.outputs.version }}
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGION="us-east-1" # <-- adjust if needed
+          REPO_NAME="sobeam-dev"
+
+          # Ensure repo exists (safe to rerun)
+          aws ecr describe-repositories --repository-names $REPO_NAME --region $REGION || \
+          aws ecr create-repository --repository-name $REPO_NAME --region $REGION
+
+          IMAGE_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
+
+          # Find tb-postgres locally
+          TB_IMAGE=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "tb-postgres:" | head -1)
+
+          if [ -z "$TB_IMAGE" ]; then
+            echo "ERROR: tb-postgres image not found!"
+            docker images
+            exit 1
+          fi
+
+          echo "Pushing image $TB_IMAGE → $IMAGE_URI:$VERSION"
+
+          docker tag $TB_IMAGE $IMAGE_URI:$VERSION
+          docker push $IMAGE_URI:$VERSION
+
+          docker tag $TB_IMAGE $IMAGE_URI:latest
+          docker push $IMAGE_URI:latest
+
+          echo "ECR_IMAGE=$IMAGE_URI:$VERSION" >> $GITHUB_ENV        
+
+
+      - name: Upload deployment artifacts
+        if: steps.identify-image.outputs.image_found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-info
+          path: |
+            VERSION.txt
+            NODE_IMAGE.txt
+          retention-days: 1
+
+      - name: Create version files
+        if: steps.identify-image.outputs.image_found == 'true'
+        run: |
+          echo "${{ steps.versioning.outputs.version }}" > VERSION.txt
+          echo "${{ env.NODE_IMAGE }}" > NODE_IMAGE.txt
+
+  
