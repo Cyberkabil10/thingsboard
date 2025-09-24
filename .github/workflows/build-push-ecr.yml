@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - develop
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:  # Allows manual triggering.
 
 jobs:
   build-and-push:
