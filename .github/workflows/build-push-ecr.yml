@@ -87,7 +87,7 @@ jobs:
         run: |
           VERSION=${{ steps.versioning.outputs.version }}
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGION="eu-west-3 # <-- adjust if needed
+          REGION="eu-west-3" # <-- adjust if needed
           REPO_NAME="sobeam-dev"
 
           # Ensure repo exists (safe to rerun)
