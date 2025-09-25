@@ -77,7 +77,13 @@ jobs:
           bump_each_commit: true
 
       - name: Verify version
-        run: echo "Using version: ${{ steps.versioning.outputs.version }}"
+        run: |
+          if [ -z "${{ steps.versioning.outputs.version }}" ]; then
+            echo "Version generation failed!"
+            exit 1
+          fi
+          echo "Using version: ${{ steps.versioning.outputs.version }}"
+
 
       - name: Build project with Maven and Docker
         run: |
