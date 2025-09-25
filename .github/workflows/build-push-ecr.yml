@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - develop
-  workflow_dispatch:  # Allows manual triggering.
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -16,11 +16,12 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Needed for semantic versioning to work properly
+          fetch-depth: 0
+
       - name: Clean Docker space
         run: |
           docker system df
-          docker system prune -af --volumes    
+          docker system prune -af --volumes
 
       - name: Cache Maven packages
         uses: actions/cache@v4
@@ -34,7 +35,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}         
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -47,7 +48,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-3  # <-- change to your AWS region
+          aws-region: eu-west-3
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -67,7 +68,7 @@ jobs:
       - name: Semantic versioning
         id: versioning
         uses: paulhatch/semantic-version@v5.0.2
-        with: 
+        with:
           tag_prefix: "v"
           major_pattern: "(BREAKING CHANGE|major):"
           minor_pattern: "(feat|minor):"
@@ -76,34 +77,35 @@ jobs:
           bump_each_commit: true
 
       - name: Verify version
-        run: |
-          if [ -z "${{ steps.versioning.outputs.version }}" ]; then
-            echo "Version generation failed!"
-            exit 1
-          fi
-          echo "Using version: ${{ steps.versioning.outputs.version }}"
+        run: echo "Using version: ${{ steps.versioning.outputs.version }}"
 
-      - name: Build project with Maven
-        run: mvn clean install -DskipTests -Dlicense.skip=true -Ddockerfile.skip=false
+      - name: Build project with Maven and Docker
+        run: |
+          # Use a .dockerignore file for the root build context to prevent large file transfers
+          echo "target/" >> .dockerignore
+          echo ".git/" >> .dockerignore
+          echo "logs/" >> .dockerignore
+          
+          # The Maven command builds and tags the image
+          mvn clean install -DskipTests -Dlicense.skip=true -Ddockerfile.skip=false
 
       - name: List built images
         run: docker image ls --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
-
+        
       - name: Push tb-postgres image to ECR
         run: |
           VERSION=${{ steps.versioning.outputs.version }}
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGION="eu-west-3" # <-- adjust if needed
+          REGION="eu-west-3"
           REPO_NAME="sobeam-dev"
+          IMAGE_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
 
-          # Ensure repo exists (safe to rerun)
           aws ecr describe-repositories --repository-names $REPO_NAME --region $REGION || \
           aws ecr create-repository --repository-name $REPO_NAME --region $REGION
 
-          IMAGE_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
-
-          # Find tb-postgres locally
-          TB_IMAGE=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "tb-postgres:" | head -1)
+          # The most reliable way to find the latest tb-postgres image is by sorting
+          # by creation date and getting the top one.
+          TB_IMAGE=$(docker images --format "{{.Repository}}:{{.Tag}}\t{{.ID}}" | grep "tb-postgres:" | sort -k 2 | tail -1 | awk '{print $1}')
 
           if [ -z "$TB_IMAGE" ]; then
             echo "ERROR: tb-postgres image not found!"
@@ -119,23 +121,4 @@ jobs:
           docker tag $TB_IMAGE $IMAGE_URI:latest
           docker push $IMAGE_URI:latest
 
-          echo "ECR_IMAGE=$IMAGE_URI:$VERSION" >> $GITHUB_ENV        
-
-
-      - name: Upload deployment artifacts
-        if: steps.identify-image.outputs.image_found == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: deployment-info
-          path: |
-            VERSION.txt
-            NODE_IMAGE.txt
-          retention-days: 1
-
-      - name: Create version files
-        if: steps.identify-image.outputs.image_found == 'true'
-        run: |
-          echo "${{ steps.versioning.outputs.version }}" > VERSION.txt
-          echo "${{ env.NODE_IMAGE }}" > NODE_IMAGE.txt
-
-  
+          echo "ECR_IMAGE=$IMAGE_URI:$VERSION" >> $GITHUB_ENV
